@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-# Copyright 2021 BHG [bw.org]
-# as of 2021-04-07 bw
+# as of 2022-05-27
 
-import psycopg2 as pg
+import psycopg2 as pg2
+
+import psycopg as pg3
 
 PG_HOST = "10.186.16.58"
 PG_USER = 'postgres'
@@ -16,12 +17,12 @@ def main():
     cur = None
 
     try:
-        db = pg.connect(host=PG_HOST, dbname=PG_DB, user=PG_USER, password=PG_PASS, port=5432)
+        db = pg3.connect(host=PG_HOST, dbname=PG_DB, user=PG_USER, password=PG_PASS, port=5432)
         #cur = db.cursor(prepared=True)
         cur = db.cursor()
         print("connected")
 
-    except pg.Error as err:
+    except pg3.Error as err:
         print(f"could not connect to Postgres: {err})")
         exit(1)
 
@@ -30,7 +31,7 @@ def main():
         # create a table
         sql_create = '''
             CREATE TABLE IF NOT EXISTS hello (
-                id INTEGER PRIMARY KEY,
+                id SERIAL PRIMARY KEY,
                 a TEXT,
                 b TEXT,
                 c TEXT 
@@ -39,7 +40,7 @@ def main():
         cur.execute(sql_create)
         print("table created")
 
-    except pg.Error as e:
+    except pg3.Error as e:
         print(f"could not create table: {e}")
         exit(1)
 
@@ -57,16 +58,16 @@ def main():
             ('nine', 'ten', 'eleven'),
         )
         print("inserting rows")
-        cur.executemany("INSERT INTO hello (a, b, c) VALUES (?, ?, ?)", row_data)
+        cur.executemany("INSERT INTO hello (a, b, c) VALUES (%s, %s, %s)", row_data)
         count = cur.rowcount
-        # cur.executemany("INSERT INTO hello (a, b, c) VALUES (?, ?, ?)", row_data)
-        # count += cur.rowcount
-        # cur.executemany("INSERT INTO hello (a, b, c) VALUES (?, ?, ?)", row_data)
-        # count += cur.rowcount
+        cur.executemany("INSERT INTO hello (a, b, c) VALUES (%s, %s, %s)", row_data)
+        count += cur.rowcount
+        cur.executemany("INSERT INTO hello (a, b, c) VALUES (%s, %s, %s)", row_data)
+        count += cur.rowcount
         print(f"{count} rows added")
         db.commit()
 
-    except pg.Error as e:
+    except pg3.Error as e:
         print(f"could not insert rows: {e}")
         exit(1)
 
@@ -74,13 +75,22 @@ def main():
         # count rows using SELECT COUNT(*)
         cur.execute("SELECT COUNT(*) FROM hello")
         count = cur.fetchone()[0]
-        print(f"there are {count} rows in the table")
+        print(f"There are {count} rows in the table")
 
-        # get column names from Postgres meta-data table_info
-        cur.execute("PRAGMA table_info(hello);")
-        row = cur.fetchall()
-        colnames = [r[1] for r in row]
-        print(f"column names are: {colnames}")
+        # get column names by selecting one row and use description
+        cur.execute("SELECT * FROM hello LIMIT 1")
+        cur.fetchall()
+        colnames = cur.description
+        colname = [r[1] for r in colnames]
+        print(f"column names with description: {colnames}")
+
+        # # get column names by selecting one row and use row_factory
+        # cur.execute("SELECT * FROM hello LIMIT 1")
+        # cur.fetchall().row_factory
+        # row = cur.description
+        # colnames = [r[1] for r in row]
+        # print(f"column names using row_factory: {colnames}")
+
 
         # fetch rows using iterator
         print('\nusing iterator')
@@ -88,14 +98,6 @@ def main():
         for row in cur:
             print(row)
 
-        # fetch rows using row_factory
-        print('\nusing row_factory')
-        cur.execute("SELECT * FROM hello LIMIT 5")
-        cur.row_factory = pg.Row
-        for row in cur:
-            print(f"as tuple: {tuple(row)}, as dict: id:{row['id']} a:{row['a']}, b:{row['b']}, c:{row['c']}")
-
-        cur.row_factory = None  # reset row factory
 
         # fetch rows in groups of 5 using fetchmany
         print('\ngroups of 5 using fetchmany')
@@ -108,12 +110,16 @@ def main():
             rows = cur.fetchmany(5)
 
         # drop table and close the database
-        print('\ndrop table and close connection')
-        cur.execute("DROP TABLE IF EXISTS hello")  # cleanup if db is not :memory:
+        print('\nDrop table and close connection')
+        sql_drop = '''
+            DROP TABLE IF EXISTS hello
+        '''
+        cur.execute(sql_drop)  # cleanup the db
         cur.close()
         db.close()
 
-    except pg.Error as e:
+
+    except pg3.Error as e:
         print(f"Postgres error: {e}")
         exit(1)
 
